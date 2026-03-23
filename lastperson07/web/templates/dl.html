@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ bot_name }} | Download {{ file_name }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+        :root {
+            --bg-primary: rgb(2,6,23); --bg-secondary: rgb(30,41,59);
+            --bg-glass: rgba(15,23,42,0.6); --bg-glass-dark: rgba(2,6,23,0.95);
+            --accent-rose: rgb(244,63,94); --accent-amber: rgb(251,191,36);
+            --accent-green: rgb(34,197,94);
+            --text-primary: rgb(248,250,252); --text-secondary: rgb(203,213,225);
+            --text-muted: rgb(148,163,184);
+            --border-subtle: rgba(255,255,255,0.05); --border-normal: rgba(255,255,255,0.1);
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:"Inter",sans-serif; background:linear-gradient(to bottom,var(--bg-primary),#0a0e1a); color:var(--text-primary); min-height:100vh; line-height:1.6; display:flex; flex-direction:column; }
+        .header { position:fixed; top:0; left:0; right:0; z-index:1000; background:var(--bg-glass-dark); backdrop-filter:blur(20px); border-bottom:1px solid var(--border-subtle); }
+        .header-content { max-width:1100px; margin:0 auto; padding:1rem 1.5rem; display:flex; align-items:center; justify-content:space-between; }
+        .logo { font-family:"JetBrains Mono",monospace; font-size:1.5rem; font-weight:800; background:linear-gradient(135deg,var(--accent-rose),var(--accent-amber)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; text-decoration:none; display:inline-block; }
+        .nav { display:flex; gap:2rem; }
+        .nav a { color:var(--text-secondary); text-decoration:none; font-size:.875rem; font-weight:500; transition:color .2s; }
+        .nav a:hover { color:var(--accent-rose); }
+        .main { flex:1; display:flex; align-items:center; justify-content:center; padding:7rem 1.5rem 3rem; }
+        .card { background:var(--bg-glass); backdrop-filter:blur(20px); border:1px solid var(--border-subtle); border-radius:20px; padding:2.5rem; width:100%; max-width:520px; text-align:center; }
+        .card-icon { width:72px; height:72px; background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.2); border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 1.5rem; }
+        .card-icon svg { color:var(--accent-green); width:32px; height:32px; }
+        .file-name { font-size:1.25rem; font-weight:700; color:var(--text-primary); margin-bottom:.75rem; word-break:break-all; line-height:1.4; }
+        .file-meta { display:flex; align-items:center; justify-content:center; gap:1rem; flex-wrap:wrap; margin-bottom:2rem; }
+        .meta-badge { display:inline-flex; align-items:center; gap:.375rem; padding:.3rem .75rem; border-radius:20px; font-size:.8125rem; font-weight:600; }
+        .badge-size { background:rgba(30,41,59,.6); border:1px solid var(--border-normal); color:var(--text-secondary); }
+        .badge-type { background:rgba(244,63,94,.1); border:1px solid rgba(244,63,94,.2); color:var(--accent-rose); }
+        .badge-ttl  { background:rgba(251,191,36,.1); border:1px solid rgba(251,191,36,.2); color:var(--accent-amber); }
+        .divider { height:1px; background:var(--border-subtle); margin:0 0 2rem; }
+        .btn-download { display:flex; align-items:center; justify-content:center; gap:.75rem; width:100%; padding:1rem 1.5rem; background:linear-gradient(135deg,var(--accent-green),rgb(22,163,74)); border:none; border-radius:10px; color:white; font-size:1rem; font-weight:700; cursor:pointer; text-decoration:none; transition:all .2s; margin-bottom:1rem; }
+        .btn-download:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(34,197,94,.3); }
+        .btn-download svg { width:20px; height:20px; flex-shrink:0; }
+        .btn-stream { display:flex; align-items:center; justify-content:center; gap:.75rem; width:100%; padding:.875rem 1.5rem; background:var(--bg-secondary); border:1px solid var(--border-normal); border-radius:10px; color:var(--text-primary); font-size:.9375rem; font-weight:600; cursor:pointer; text-decoration:none; transition:all .2s; margin-bottom:2rem; }
+        .btn-stream:hover { background:rgba(244,63,94,.1); border-color:var(--accent-rose); transform:translateY(-1px); }
+        .btn-stream svg { width:18px; height:18px; flex-shrink:0; }
+        .external-title { font-size:.75rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:.875rem; }
+        .players-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.625rem; }
+        .player-btn { display:flex; flex-direction:column; align-items:center; gap:.375rem; padding:.75rem .5rem; background:rgba(30,41,59,.4); border:1px solid var(--border-subtle); border-radius:8px; color:var(--text-secondary); font-size:.75rem; font-weight:500; cursor:pointer; text-decoration:none; transition:all .2s; }
+        .player-btn:hover { background:rgba(244,63,94,.1); border-color:var(--accent-rose); color:var(--accent-rose); }
+        .player-btn img { width:24px; height:24px; }
+        .footer { text-align:center; padding:1.5rem; border-top:1px solid var(--border-subtle); color:var(--text-muted); font-size:.8125rem; }
+        .footer a { color:var(--accent-rose); text-decoration:none; font-weight:600; }
+        .progress-wrap { margin-bottom:1rem; display:none; }
+        .progress-bar-bg { height:6px; background:var(--bg-secondary); border-radius:3px; overflow:hidden; }
+        .progress-bar { height:100%; background:linear-gradient(90deg,var(--accent-green),var(--accent-amber)); border-radius:3px; width:0%; transition:width .3s; }
+        .progress-label { font-size:.8125rem; color:var(--text-muted); margin-top:.5rem; }
+        ::-webkit-scrollbar { width:8px; }
+        ::-webkit-scrollbar-track { background:var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background:var(--bg-secondary); border-radius:4px; }
+        ::-webkit-scrollbar-thumb:hover { background:var(--accent-rose); }
+        @media(max-width:480px) {
+            .card { padding:1.75rem 1.25rem; }
+            .players-grid { grid-template-columns:repeat(2,1fr); }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <a href="{{ support_url }}" class="logo">{{ bot_name }}</a>
+            <nav class="nav">
+                <a href="{{ support_url }}">Support</a>
+                <a href="https://t.me/{{ bot_username }}">Bot</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="card">
+            <div class="card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+            </div>
+
+            <div class="file-name">{{ file_name }}</div>
+
+            <div class="file-meta">
+                <span class="meta-badge badge-size">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+                    {{ file_size_human }}
+                </span>
+                <span class="meta-badge badge-type">{{ mime_type }}</span>
+                {% if ttl_label %}
+                <span class="meta-badge badge-ttl">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    {{ ttl_label }}
+                </span>
+                {% endif %}
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Primary: direct download via download_client (API 2) -->
+            <a href="{{ file_url }}" download="{{ file_name }}" class="btn-download" id="dlBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Download File
+            </a>
+
+            <!-- Stream link if one was also generated -->
+            {% if stream_url %}
+            <a href="{{ stream_url }}" class="btn-stream">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                Watch in Browser
+            </a>
+            {% endif %}
+
+            <!-- External players for mobile -->
+            <div class="external-title">Open in external player</div>
+            <div class="players-grid">
+                <a href="#" class="player-btn" onclick="vlc_player();return false;">
+                    <img src="https://i.postimg.cc/15TQ4y7B/vlc.png" alt="VLC"/>
+                    <span>VLC</span>
+                </a>
+                <a href="#" class="player-btn" onclick="mx_player();return false;">
+                    <img src="https://i.postimg.cc/sx4Msv4T/mx.png" alt="MX"/>
+                    <span>MX Player</span>
+                </a>
+                <a href="#" class="player-btn" onclick="playit_player();return false;">
+                    <img src="https://i.postimg.cc/RVGWYJFF/playit.png" alt="PLAYit"/>
+                    <span>PLAYit</span>
+                </a>
+                <a href="#" class="player-btn" onclick="km_player();return false;">
+                    <img src="https://i.postimg.cc/wT9tFQ9Z/km.png" alt="KM"/>
+                    <span>KMPlayer</span>
+                </a>
+                <a href="#" class="player-btn" onclick="s_player();return false;">
+                    <img src="https://i.postimg.cc/XYJr6NGg/s.png" alt="S"/>
+                    <span>S Player</span>
+                </a>
+                <a href="#" class="player-btn" onclick="hd_player();return false;">
+                    <img src="https://i.postimg.cc/rFT43LNh/hd.png" alt="HD"/>
+                    <span>HD Player</span>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2026 <a href="{{ support_url }}">{{ bot_name }}</a>. All Rights Reserved.</p>
+    </footer>
+
+    <script>
+        // Variables injected by Jinja2
+        const FILE_URL  = "{{ file_url }}";   // /dl/{token} — full download via download_client
+        const FILE_NAME = "{{ file_name }}";
+
+        // ── External players — all use template literals (backticks) ─────────
+        function vlc_player() {
+            window.location.href = `vlc://${FILE_URL.replace(/^https?:\/\//, "")}`;
+            setTimeout(() => { window.location.href = `intent:${FILE_URL}#Intent;action=android.intent.action.VIEW;type=video/*;package=org.videolan.vlc;end`; }, 500);
+        }
+        function mx_player()     { window.location.href = `intent:${FILE_URL}#Intent;action=android.intent.action.VIEW;type=video/*;package=com.mxtech.videoplayer.ad;end`; }
+        function playit_player() { window.location.href = `playit://playerv2/video?url=${encodeURIComponent(FILE_URL)}`; }
+        function km_player()     { window.location.href = `intent:${FILE_URL}#Intent;action=android.intent.action.VIEW;type=video/*;package=com.kmplayer;end`; }
+        function s_player()      { window.location.href = `intent:${FILE_URL}#Intent;action=com.young.simple.player.playback_online;package=com.young.simple.player;end`; }
+        function hd_player()     { window.location.href = `intent:${FILE_URL}#Intent;action=android.intent.action.VIEW;type=video/*;package=uplayer.video.player;end`; }
+    </script>
+</body>
+</html>

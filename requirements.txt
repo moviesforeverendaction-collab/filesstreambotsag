@@ -1,0 +1,9 @@
+kurigram
+fastapi
+uvicorn[standard]
+uvloop
+httptools
+motor
+redis[hiredis]
+jinja2
+python-dotenv
