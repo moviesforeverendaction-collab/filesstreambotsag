@@ -55,10 +55,7 @@ MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "filebot")
 REDIS_URL     = require("REDIS_URL")
 
 # ── Web server ────────────────────────────────────────────────────────────────
-# Auto-prepend https:// if BASE_URL is set without a scheme
-# e.g. "lastperson07.up.railway.app" → "https://lastperson07.up.railway.app"
-# Without this, all generated URLs become relative paths and the browser
-# resolves them against the current route, breaking stream and download links.
+# Auto-prepend https:// if BASE_URL is missing scheme
 _base_url = os.getenv("BASE_URL", "http://localhost:8080").strip().rstrip("/")
 if _base_url and not _base_url.startswith(("http://", "https://")):
     _base_url = "https://" + _base_url
@@ -72,14 +69,24 @@ LINK_TTL          = env_int("LINK_TTL", 86400)
 RATE_LIMIT_MAX    = env_int("RATE_LIMIT_MAX", 10)
 RATE_LIMIT_WINDOW = env_int("RATE_LIMIT_WINDOW", 60)
 
-# ── Streaming ─────────────────────────────────────────────────────────────────
-# Telegram's stream_media() yields exactly 1 MiB per chunk.
-CHUNK_SIZE = 1024 * 1024  # 1 MiB
+# ── Streaming / Download ──────────────────────────────────────────────────────
+# Telegram yields exactly 1 MiB per chunk from stream_media().
+CHUNK_SIZE = 1024 * 1024  # 1 MiB — do NOT change
 
-# Chunks pre-fetched ahead of the HTTP writer.
-# 4 chunks = 4 MiB read-ahead per connection.
-# Increase for faster servers, decrease to save RAM.
-STREAM_PREFETCH_CHUNKS = env_int("STREAM_PREFETCH_CHUNKS", 4)
+# How many 1-MiB chunks to fetch from Telegram IN PARALLEL per connection.
+#
+# Sequential (old):  fetch chunk 1 → wait → fetch chunk 2 → wait ...  SLOW
+# Parallel   (new):  fetch chunks 1+2+3+4 simultaneously → yield in order FAST
+#
+# STREAM_PARALLEL_CHUNKS=4  → 4 MiB fetched at once per stream connection
+# DOWNLOAD_PARALLEL_CHUNKS=8 → 8 MiB fetched at once per download connection
+#
+# Telegram allows up to max_concurrent_transmissions=20 per client.
+# With parallel=8 and 10 simultaneous downloads → 80 concurrent DC requests
+# which is within the safe 20-per-client limit per connection.
+# Raise these numbers if Railway has fast uplink and you want more throughput.
+STREAM_PARALLEL_CHUNKS   = env_int("STREAM_PARALLEL_CHUNKS", 4)
+DOWNLOAD_PARALLEL_CHUNKS = env_int("DOWNLOAD_PARALLEL_CHUNKS", 8)
 
 # ── Concurrency limits ────────────────────────────────────────────────────────
 MAX_STREAM_CONNECTIONS    = env_int("MAX_STREAM_CONNECTIONS", 200)
