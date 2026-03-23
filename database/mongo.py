@@ -8,6 +8,8 @@ _db = None
 
 def init_mongo():
     global _client, _db
+    if _client is not None:
+        return  # Already initialised — avoid duplicate connections
     _client = AsyncIOMotorClient(config.MONGO_URI)
     _db = _client[config.MONGO_DB_NAME]
     print("✅ MongoDB initialised")
@@ -20,13 +22,15 @@ def get_db():
 
 
 async def close_mongo():
-    global _client
+    """Close the Motor client. Motor's close() is synchronous."""
+    global _client, _db
     if _client:
-        _client.close()
+        _client.close()   # synchronous — do NOT await
         _client = None
+        _db = None
 
 
-def _now():
+def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -34,11 +38,12 @@ def _now():
 
 async def upsert_user(user_id: int, username: str = None, full_name: str = None):
     db = get_db()
+    now = _now()   # compute once so $set and $setOnInsert share the same timestamp
     await db.users.update_one(
         {"user_id": user_id},
         {
-            "$set":         {"username": username, "full_name": full_name, "last_seen": _now()},
-            "$setOnInsert": {"user_id": user_id, "joined_at": _now(), "is_banned": False, "total_links": 0},
+            "$set":         {"username": username, "full_name": full_name, "last_seen": now},
+            "$setOnInsert": {"user_id": user_id, "joined_at": now, "is_banned": False, "total_links": 0},
         },
         upsert=True,
     )
@@ -60,13 +65,14 @@ async def unban_user(user_id: int):
     await db.users.update_one({"user_id": user_id}, {"$set": {"is_banned": False}})
 
 
-async def get_all_user_ids() -> list[int]:
+async def get_all_user_ids() -> list:
     db = get_db()
     return [d["user_id"] async for d in db.users.find({"is_banned": False}, {"user_id": 1})]
 
 
 async def count_users() -> int:
-    return await get_db().users.count_documents({})
+    db = get_db()
+    return await db.users.count_documents({})
 
 
 # ── file log ──────────────────────────────────────────────────────────────────
@@ -87,8 +93,10 @@ async def log_file(user_id: int, token: str, link_type: str, file_data: dict):
 
 
 async def count_files() -> int:
-    return await get_db().files.count_documents({})
+    db = get_db()
+    return await db.files.count_documents({})
 
 
 async def count_by_type(link_type: str) -> int:
-    return await get_db().files.count_documents({"link_type": link_type})
+    db = get_db()
+    return await db.files.count_documents({"link_type": link_type})

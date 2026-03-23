@@ -46,13 +46,19 @@ async def file_received(client, message: Message):
             from_chat_id=message.chat.id,
             message_ids=message.id,
         )
-        # forward_messages returns list or single Message depending on pyrogram version
-        stored_msg = result[0] if isinstance(result, list) else result
+        # forward_messages always returns a list in Pyrogram
+        if isinstance(result, list):
+            if not result:
+                raise ValueError("forward_messages returned an empty list")
+            stored_msg = result[0]
+        else:
+            # Defensive: handle if a future Pyrogram version returns a single message
+            stored_msg = result
     except Exception as e:
         await status.edit_text(f"❌ Failed to store file.\n`{e}`")
         return
 
-    # Overwrite file_id with the stored copy — never expires
+    # Overwrite file_id with the stored copy — file_ids from storage channels never expire
     stored_media = (
         stored_msg.video or stored_msg.document or stored_msg.audio
         or stored_msg.voice or stored_msg.video_note or stored_msg.animation
@@ -60,9 +66,24 @@ async def file_received(client, message: Message):
     if stored_media:
         file_data["file_id"]        = stored_media.file_id
         file_data["file_unique_id"] = stored_media.file_unique_id
+        # Prefer stored media's file_size if original was missing
+        if not file_data.get("file_size"):
+            file_data["file_size"] = getattr(stored_media, "file_size", 0) or 0
+    else:
+        # Storage forward succeeded but media extraction failed — abort
+        await status.edit_text("❌ Could not read the stored file. Please try again.")
+        return
 
     file_data["storage_chat_id"] = config.STORAGE_CHANNEL
     file_data["storage_msg_id"]  = stored_msg.id
+
+    # Validate file_size before proceeding
+    if not file_data.get("file_size"):
+        await status.edit_text(
+            "⚠️ File size is unknown. Streaming and download links require a known size.\n"
+            "Please try re-sending the file."
+        )
+        return
 
     # ── Cache pending state (10 min) ──────────────────────────────────────────
     await rdb.set_pending(user.id, file_data, ttl=600)

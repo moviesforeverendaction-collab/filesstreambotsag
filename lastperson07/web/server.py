@@ -1,48 +1,68 @@
 import asyncio
 import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from lastperson07.web.media import router as media_router
-from database.redis import get_token
+from database.redis import get_token, get_redis
 from database.mongo import init_mongo
 import uvicorn
 import config
 
-app = FastAPI(title="FileLink Bot", docs_url=None, redoc_url=None)
-
 _TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=_TEMPLATES_DIR)
-
-app.include_router(media_router)
 
 _SUPPORT_URL  = f"https://t.me/{config.FORCE_SUB_CHANNEL.lstrip('@')}" if config.FORCE_SUB_CHANNEL else "https://t.me/"
 _BOT_NAME     = config.BOT_USERNAME
 _BOT_USERNAME = config.BOT_USERNAME
 
+# ── Background tasks storage ──────────────────────────────────────────────────
+_bg_tasks: set = set()
 
-# ── FastAPI lifecycle ─────────────────────────────────────────────────────────
 
-@app.on_event("startup")
-async def startup():
-    from database.redis import get_redis
+def _spawn(coro):
+    """Create a tracked background task that won't be silently GC'd."""
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
+
+# ── FastAPI lifespan (replaces deprecated on_event) ──────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ── Startup ───────────────────────────────────────────────────────────────
     from lastperson07.clients import stream_client, download_client
-    import lastperson07.handlers  # noqa — triggers all @bot.on_* decorator registrations
+    import lastperson07.handlers  # noqa — registers all @bot.on_* handlers
 
+    # Connect Redis first (blocks until ready)
     await get_redis()
+    # Init MongoDB (synchronous driver setup)
     init_mongo()
 
-    asyncio.create_task(_start_clients(stream_client, download_client))
-    asyncio.create_task(_cleanup_loop())
+    # Start Telegram clients as a tracked background task
+    _spawn(_start_clients(stream_client, download_client))
+    _spawn(_cleanup_loop())
 
+    yield  # ── Application runs here ─────────────────────────────────────────
 
-@app.on_event("shutdown")
-async def shutdown():
-    from lastperson07.clients import stream_client, download_client
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+    tasks = list(_bg_tasks)
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
     from database.redis import close_redis
     from database.mongo import close_mongo
     try:
         await stream_client.stop()
+    except Exception:
+        pass
+    try:
         await download_client.stop()
     except Exception:
         pass
@@ -50,30 +70,39 @@ async def shutdown():
     await close_mongo()
 
 
+app = FastAPI(title="FileLink Bot", docs_url=None, redoc_url=None, lifespan=lifespan)
+app.include_router(media_router)
+
+
 async def _start_clients(stream_client, download_client):
+    """Start both Pyrogram clients and keep them running."""
     try:
         await stream_client.start()
         await download_client.start()
         print("✅ Both Kurigram clients started")
-        await asyncio.Event().wait()
+        # Keep this coroutine alive until cancelled
+        await asyncio.Future()  # runs forever; cancelled on shutdown
+    except asyncio.CancelledError:
+        pass
     except Exception as e:
         print(f"⚠️ Client start error: {e}")
 
 
 async def _cleanup_loop():
-    from database.redis import get_redis
-    while True:
-        await asyncio.sleep(config.CLEANUP_INTERVAL)
-        try:
-            r = await get_redis()
-            expired = 0
-            async for key in r.scan_iter("token:*"):
-                if await r.ttl(key) == -2:
-                    expired += 1
-            if expired:
-                print(f"🧹 Cleanup: {expired} stale token keys found")
-        except Exception as e:
-            print(f"⚠️ Cleanup error: {e}")
+    """Periodically log the count of active token keys."""
+    try:
+        while True:
+            await asyncio.sleep(config.CLEANUP_INTERVAL)
+            try:
+                r = await get_redis()
+                active = 0
+                async for _ in r.scan_iter("token:*"):
+                    active += 1
+                print(f"🧹 Cleanup check: {active} active token keys in Redis")
+            except Exception as e:
+                print(f"⚠️ Cleanup error: {e}")
+    except asyncio.CancelledError:
+        pass
 
 
 # ── Page routes ───────────────────────────────────────────────────────────────
@@ -83,6 +112,8 @@ async def stream_page(token: str, request: Request):
     data = await get_token(token)
     if not data:
         raise HTTPException(status_code=404, detail="Link expired or not found.")
+    # Guard: file_size must be a positive integer
+    file_size = int(data.get("file_size") or 0)
     return templates.TemplateResponse(
         name="stream.html",
         context={
@@ -90,7 +121,7 @@ async def stream_page(token: str, request: Request):
             "file_url":     f"{config.BASE_URL}/media/{token}",
             "dl_url":       f"{config.BASE_URL}/dl/{token}",
             "file_name":    data.get("file_name", "Unknown"),
-            "file_size":    data.get("file_size", 0),
+            "file_size":    file_size,
             "mime_type":    data.get("mime_type", "video/mp4"),
             "ttl_label":    data.get("ttl_label", ""),
             "bot_name":     _BOT_NAME,
@@ -106,17 +137,25 @@ async def download_page(token: str, request: Request):
     if not data:
         raise HTTPException(status_code=404, detail="Link expired or not found.")
     from lastperson07.utils.human_size import human_size
+    file_size = int(data.get("file_size") or 0)
+    mime_type = data.get("mime_type", "application/octet-stream")
+    # Provide stream_url only for streamable content
+    stream_url_val = (
+        f"{config.BASE_URL}/stream/{token}"
+        if mime_type.startswith(("video/", "audio/"))
+        else ""
+    )
     return templates.TemplateResponse(
         name="dl.html",
         context={
             "request":         request,
             "file_url":        f"{config.BASE_URL}/dl/{token}",
             "file_name":       data.get("file_name", "Unknown"),
-            "file_size":       data.get("file_size", 0),
-            "file_size_human": human_size(data.get("file_size", 0)),
-            "mime_type":       data.get("mime_type", "application/octet-stream"),
+            "file_size":       file_size,
+            "file_size_human": human_size(file_size),
+            "mime_type":       mime_type,
             "ttl_label":       data.get("ttl_label", ""),
-            "stream_url":      "",
+            "stream_url":      stream_url_val,
             "bot_name":        _BOT_NAME,
             "bot_username":    _BOT_USERNAME,
             "support_url":     _SUPPORT_URL,
@@ -130,23 +169,19 @@ async def health():
 
 
 # ── Uvicorn runner ────────────────────────────────────────────────────────────
-# 32 vCPU available.
-# uvicorn in single-process async mode already saturates I/O-bound workloads.
-# We set loop="uvloop" for the fastest async event loop on Linux,
-# and limit_concurrency to protect against traffic spikes.
 
 async def start_web():
     cfg = uvicorn.Config(
         app=app,
         host=config.HOST,
         port=config.PORT,
-        loop="uvloop",          # fastest async loop on Linux — big win for I/O
-        http="httptools",       # fastest HTTP parser
+        loop="uvloop",
+        http="httptools",
         log_level="info",
-        timeout_keep_alive=75,  # keep connections alive longer under load
+        timeout_keep_alive=75,
         limit_concurrency=config.UVICORN_LIMIT_CONCURRENCY,
         limit_max_requests=None,
-        workers=1,              # single process — asyncio handles concurrency
+        workers=1,
     )
     server = uvicorn.Server(cfg)
     await server.serve()
