@@ -32,12 +32,12 @@ BOT_TOKEN    = require("BOT_TOKEN")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "YourBot")
 
 # ── Telegram API 1 — stream client ───────────────────────────────────────────
-API_ID_1     = env_int("API_ID_1", 0)
-API_HASH_1   = require("API_HASH_1")
+API_ID_1   = env_int("API_ID_1", 0)
+API_HASH_1 = require("API_HASH_1")
 
 # ── Telegram API 2 — download client ─────────────────────────────────────────
-API_ID_2     = env_int("API_ID_2", 0)
-API_HASH_2   = require("API_HASH_2")
+API_ID_2   = env_int("API_ID_2", 0)
+API_HASH_2 = require("API_HASH_2")
 
 # ── Storage channel ───────────────────────────────────────────────────────────
 STORAGE_CHANNEL = env_int("STORAGE_CHANNEL", 0)
@@ -55,9 +55,17 @@ MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "filebot")
 REDIS_URL     = require("REDIS_URL")
 
 # ── Web server ────────────────────────────────────────────────────────────────
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8080").rstrip("/")
-PORT     = env_int("PORT", 8080)   # Railway injects this automatically
-HOST     = os.getenv("HOST", "0.0.0.0")
+# Auto-prepend https:// if BASE_URL is set without a scheme
+# e.g. "lastperson07.up.railway.app" → "https://lastperson07.up.railway.app"
+# Without this, all generated URLs become relative paths and the browser
+# resolves them against the current route, breaking stream and download links.
+_base_url = os.getenv("BASE_URL", "http://localhost:8080").strip().rstrip("/")
+if _base_url and not _base_url.startswith(("http://", "https://")):
+    _base_url = "https://" + _base_url
+BASE_URL = _base_url
+
+PORT = env_int("PORT", 8080)
+HOST = os.getenv("HOST", "0.0.0.0")
 
 # ── Link behaviour ────────────────────────────────────────────────────────────
 LINK_TTL          = env_int("LINK_TTL", 86400)
@@ -65,13 +73,17 @@ RATE_LIMIT_MAX    = env_int("RATE_LIMIT_MAX", 10)
 RATE_LIMIT_WINDOW = env_int("RATE_LIMIT_WINDOW", 60)
 
 # ── Streaming ─────────────────────────────────────────────────────────────────
-# stream_media() yields exactly 1 MiB per chunk — do not change this.
+# Telegram's stream_media() yields exactly 1 MiB per chunk.
 CHUNK_SIZE = 1024 * 1024  # 1 MiB
 
-# ── Concurrency limits (tuned for 32 vCPU / 32 GB) ───────────────────────────
-# These can be overridden via env vars without code changes.
-MAX_STREAM_CONNECTIONS   = env_int("MAX_STREAM_CONNECTIONS", 200)
-MAX_DOWNLOAD_CONNECTIONS = env_int("MAX_DOWNLOAD_CONNECTIONS", 100)
+# Chunks pre-fetched ahead of the HTTP writer.
+# 4 chunks = 4 MiB read-ahead per connection.
+# Increase for faster servers, decrease to save RAM.
+STREAM_PREFETCH_CHUNKS = env_int("STREAM_PREFETCH_CHUNKS", 4)
+
+# ── Concurrency limits ────────────────────────────────────────────────────────
+MAX_STREAM_CONNECTIONS    = env_int("MAX_STREAM_CONNECTIONS", 200)
+MAX_DOWNLOAD_CONNECTIONS  = env_int("MAX_DOWNLOAD_CONNECTIONS", 100)
 UVICORN_LIMIT_CONCURRENCY = env_int("UVICORN_LIMIT_CONCURRENCY", 500)
 
 # ── Cleanup background task ───────────────────────────────────────────────────
