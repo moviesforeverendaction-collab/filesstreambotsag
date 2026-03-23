@@ -83,18 +83,21 @@ async def stream_page(token: str, request: Request):
     data = await get_token(token)
     if not data:
         raise HTTPException(status_code=404, detail="Link expired or not found.")
-    return templates.TemplateResponse("stream.html", {
-        "request":      request,
-        "file_url":     f"{config.BASE_URL}/media/{token}",
-        "dl_url":       f"{config.BASE_URL}/dl/{token}",
-        "file_name":    data.get("file_name", "Unknown"),
-        "file_size":    data.get("file_size", 0),
-        "mime_type":    data.get("mime_type", "video/mp4"),
-        "ttl_label":    data.get("ttl_label", ""),
-        "bot_name":     _BOT_NAME,
-        "bot_username": _BOT_USERNAME,
-        "support_url":  _SUPPORT_URL,
-    })
+    return templates.TemplateResponse(
+        name="stream.html",
+        context={
+            "request":      request,
+            "file_url":     f"{config.BASE_URL}/media/{token}",
+            "dl_url":       f"{config.BASE_URL}/dl/{token}",
+            "file_name":    data.get("file_name", "Unknown"),
+            "file_size":    data.get("file_size", 0),
+            "mime_type":    data.get("mime_type", "video/mp4"),
+            "ttl_label":    data.get("ttl_label", ""),
+            "bot_name":     _BOT_NAME,
+            "bot_username": _BOT_USERNAME,
+            "support_url":  _SUPPORT_URL,
+        },
+    )
 
 
 @app.get("/download/{token}", response_class=HTMLResponse)
@@ -103,19 +106,22 @@ async def download_page(token: str, request: Request):
     if not data:
         raise HTTPException(status_code=404, detail="Link expired or not found.")
     from lastperson07.utils.human_size import human_size
-    return templates.TemplateResponse("dl.html", {
-        "request":         request,
-        "file_url":        f"{config.BASE_URL}/dl/{token}",
-        "file_name":       data.get("file_name", "Unknown"),
-        "file_size":       data.get("file_size", 0),
-        "file_size_human": human_size(data.get("file_size", 0)),
-        "mime_type":       data.get("mime_type", "application/octet-stream"),
-        "ttl_label":       data.get("ttl_label", ""),
-        "stream_url":      "",
-        "bot_name":        _BOT_NAME,
-        "bot_username":    _BOT_USERNAME,
-        "support_url":     _SUPPORT_URL,
-    })
+    return templates.TemplateResponse(
+        name="dl.html",
+        context={
+            "request":         request,
+            "file_url":        f"{config.BASE_URL}/dl/{token}",
+            "file_name":       data.get("file_name", "Unknown"),
+            "file_size":       data.get("file_size", 0),
+            "file_size_human": human_size(data.get("file_size", 0)),
+            "mime_type":       data.get("mime_type", "application/octet-stream"),
+            "ttl_label":       data.get("ttl_label", ""),
+            "stream_url":      "",
+            "bot_name":        _BOT_NAME,
+            "bot_username":    _BOT_USERNAME,
+            "support_url":     _SUPPORT_URL,
+        },
+    )
 
 
 @app.get("/health")
