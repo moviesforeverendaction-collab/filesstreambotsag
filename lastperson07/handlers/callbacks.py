@@ -1,5 +1,5 @@
-from kurigram import filters
-from kurigram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram import filters
+from pyrogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from lastperson07.clients import stream_client as bot
 from lastperson07.utils.token import gen_token, stream_url, download_url
 from lastperson07.utils.human_size import human_size

@@ -1,5 +1,5 @@
-from kurigram import filters
-from kurigram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram import filters
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from lastperson07.clients import stream_client as bot
 from lastperson07.utils.file_info import extract_file_info, is_streamable
 from lastperson07.utils.force_sub import check_force_sub
@@ -46,7 +46,7 @@ async def file_received(client, message: Message):
             from_chat_id=message.chat.id,
             message_ids=message.id,
         )
-        # forward_messages returns list or single Message depending on kurigram version
+        # forward_messages returns list or single Message depending on pyrogram version
         stored_msg = result[0] if isinstance(result, list) else result
     except Exception as e:
         await status.edit_text(f"❌ Failed to store file.\n`{e}`")

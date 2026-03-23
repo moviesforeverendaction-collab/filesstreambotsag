@@ -1,4 +1,4 @@
-kurigram
+Kurigram
 TgCrypto
 fastapi
 uvicorn[standard]

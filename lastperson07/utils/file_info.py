@@ -1,4 +1,4 @@
-from kurigram.types import Message
+from pyrogram.types import Message
 
 
 def extract_file_info(message: Message) -> dict | None:

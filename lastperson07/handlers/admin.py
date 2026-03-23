@@ -1,7 +1,7 @@
 import functools
 import time
-from kurigram import filters
-from kurigram.types import Message
+from pyrogram import filters
+from pyrogram.types import Message
 from lastperson07.clients import stream_client as bot
 from database import mongo
 import config

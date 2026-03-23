@@ -1,5 +1,5 @@
-from kurigram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from kurigram.enums import ChatMemberStatus
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.enums import ChatMemberStatus
 import config
 
 
