@@ -3,15 +3,22 @@ from pyrogram import Client
 import config
 
 # ── Session directory ─────────────────────────────────────────────────────────
-# Store .session files on disk so Pyrogram reuses DC auth keys across restarts.
-# This eliminates the ~2s re-auth delay when streaming/downloading files that
-# live on a different Telegram DC (e.g. DC1 while bot is on DC2).
-SESSION_DIR = os.getenv("SESSION_DIR", "/app/sessions")
+# Railway volume is mounted at /app/sessions — session files persist across
+# redeployments so Pyrogram reuses DC auth keys without re-handshaking.
+SESSION_DIR = "/app/sessions"
 os.makedirs(SESSION_DIR, exist_ok=True)
+
+_stream_path   = os.path.join(SESSION_DIR, "stream_session")
+_download_path = os.path.join(SESSION_DIR, "download_session")
+
+# Log where sessions are stored so you can confirm in Railway logs
+print(f"📁 Session dir: {SESSION_DIR}")
+print(f"   stream   → {_stream_path}.session  exists={os.path.exists(_stream_path + '.session')}")
+print(f"   download → {_download_path}.session  exists={os.path.exists(_download_path + '.session')}")
 
 # ── Client 1 : stream ─────────────────────────────────────────────────────────
 stream_client = Client(
-    name=os.path.join(SESSION_DIR, "stream_session"),
+    name=_stream_path,
     api_id=config.API_ID_1,
     api_hash=config.API_HASH_1,
     bot_token=config.BOT_TOKEN,
@@ -22,7 +29,7 @@ stream_client = Client(
 
 # ── Client 2 : download ───────────────────────────────────────────────────────
 download_client = Client(
-    name=os.path.join(SESSION_DIR, "download_session"),
+    name=_download_path,
     api_id=config.API_ID_2,
     api_hash=config.API_HASH_2,
     bot_token=config.BOT_TOKEN,
