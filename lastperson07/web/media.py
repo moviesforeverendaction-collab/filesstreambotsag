@@ -9,7 +9,7 @@ router = APIRouter()
 
 CHUNK_SIZE = config.CHUNK_SIZE  # 1 MiB
 
-# ── Concurrency caps (lazy init — must be inside running event loop) ──────────
+# ── Concurrency caps (lazy — must be inside running event loop) ───────────────
 _stream_semaphore: asyncio.Semaphore | None = None
 _download_semaphore: asyncio.Semaphore | None = None
 
@@ -57,88 +57,104 @@ def parse_range(header: str, file_size: int) -> tuple[int, int]:
         return 0, file_size - 1
 
 
-async def _fetch_to_queue(
+async def _fetch_single_chunk(
+    client,
+    file_id: str,
+    chunk_index: int,
+    skip: int,
+    trim: int,
+) -> tuple[int, bytes]:
+    """
+    Fetch one 1-MiB chunk from Telegram by offset index.
+    Returns (chunk_index, data) so the caller can reorder out-of-order results.
+
+    skip  = bytes to strip from the START of chunk 0 (byte-range alignment)
+    trim  = bytes to keep from the END of the last chunk (byte-range alignment)
+           -1 means keep the whole chunk
+    """
+    data = b""
+    async for part in client.stream_media(file_id, offset=chunk_index, limit=1):
+        data = part
+    if skip:
+        data = data[skip:]
+    if trim != -1:
+        data = data[:trim]
+    return chunk_index, data
+
+
+async def yield_bytes_parallel(
     client,
     file_id: str,
     byte_start: int,
     byte_end: int,
-    queue: asyncio.Queue,
-) -> None:
+    parallel: int = 4,
+):
     """
-    Background task: pull chunks from Telegram and push into queue.
-    Sends None sentinel when finished or on error.
+    Yield byte-exact content using parallel chunk fetching.
 
-    By decoupling Telegram fetch latency from HTTP write latency, the browser
-    always has data ready to consume — no buffering pauses caused by Telegram
-    DC round-trip jitter.
-    """
-    if byte_end < byte_start:
-        await queue.put(None)
-        return
+    Instead of fetching chunks one-by-one (sequential, slow), we fire off
+    `parallel` Telegram requests simultaneously and yield chunks in order.
 
-    first_chunk = byte_start // CHUNK_SIZE
-    skip        = byte_start % CHUNK_SIZE
-    remaining   = byte_end - byte_start + 1
-    chunk_idx   = 0
+    parallel=4 → 4 MiB in-flight at once → 4× faster than sequential.
+    Telegram allows max_concurrent_transmissions (set to 20) per client,
+    so parallel=4 is well within safe limits.
 
-    try:
-        async for chunk in client.stream_media(file_id, offset=first_chunk):
-            if remaining <= 0:
-                break
-            if chunk_idx == 0 and skip:
-                chunk = chunk[skip:]
-            if len(chunk) > remaining:
-                chunk = chunk[:remaining]
-            remaining -= len(chunk)
-            chunk_idx += 1
-            await queue.put(chunk)
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        print(f"⚠️ _fetch_to_queue error (file_id={file_id}): {e}")
-    finally:
-        await queue.put(None)  # always signal completion
-
-
-async def yield_bytes(client, file_id: str, byte_start: int, byte_end: int):
-    """
-    Yield byte-exact content from Telegram via a prefetch queue.
-
-    STREAM_PREFETCH_CHUNKS (default 4) × 1 MiB chunks are fetched ahead of
-    what the HTTP layer has consumed, keeping the pipe full even when individual
-    Telegram round-trips are slow.  Client disconnects cancel the fetcher task
-    immediately so we don't waste bandwidth fetching data nobody will receive.
+    Order is preserved: chunk N is always yielded before chunk N+1.
     """
     if byte_end < byte_start:
         return
 
-    # Queue depth = how many 1 MiB chunks are buffered ahead
-    queue: asyncio.Queue[bytes | None] = asyncio.Queue(
-        maxsize=config.STREAM_PREFETCH_CHUNKS
-    )
-    fetcher = asyncio.create_task(
-        _fetch_to_queue(client, file_id, byte_start, byte_end, queue)
-    )
+    first_chunk  = byte_start // CHUNK_SIZE
+    last_chunk   = byte_end   // CHUNK_SIZE
+    total_chunks = last_chunk - first_chunk + 1
+
+    # For the very first chunk: skip leading bytes (byte-range alignment)
+    # For the very last chunk: keep only bytes up to byte_end
+    first_skip = byte_start % CHUNK_SIZE
+    last_trim  = (byte_end % CHUNK_SIZE) + 1  # bytes to keep in last chunk
+
+    chunk_indices = list(range(first_chunk, last_chunk + 1))
+    next_to_yield = first_chunk
+    buffer: dict[int, bytes] = {}
 
     try:
-        while True:
-            chunk = await queue.get()
-            if chunk is None:
-                break
-            yield chunk
+        for batch_start in range(0, total_chunks, parallel):
+            batch = chunk_indices[batch_start : batch_start + parallel]
+
+            # Fire all chunks in this batch simultaneously
+            tasks = []
+            for idx in batch:
+                skip = first_skip if idx == first_chunk else 0
+                trim = last_trim  if idx == last_chunk  else -1
+                tasks.append(
+                    asyncio.create_task(
+                        _fetch_single_chunk(client, file_id, idx, skip, trim)
+                    )
+                )
+
+            # Gather results (preserves order via return value)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in results:
+                if isinstance(result, Exception):
+                    print(f"⚠️ chunk fetch error (file_id={file_id}): {result}")
+                    return
+                idx, data = result
+                buffer[idx] = data
+
+            # Yield buffered chunks in strict order
+            while next_to_yield in buffer:
+                yield buffer.pop(next_to_yield)
+                next_to_yield += 1
+
     except GeneratorExit:
-        # Client disconnected — stop fetching immediately
-        fetcher.cancel()
-        try:
-            await fetcher
-        except (asyncio.CancelledError, Exception):
-            pass
+        # Client disconnected — cancel any pending tasks
+        for task in tasks if 'tasks' in dir() else []:
+            task.cancel()
         return
     except Exception as e:
-        print(f"⚠️ yield_bytes error (file_id={file_id}): {e}")
-    finally:
-        if not fetcher.done():
-            fetcher.cancel()
+        print(f"⚠️ yield_bytes_parallel error (file_id={file_id}): {e}")
+        return
 
 
 async def _resolve_token(token: str) -> dict:
@@ -177,7 +193,10 @@ async def media_endpoint(token: str, request: Request):
 
         async def _stream_range():
             async with _get_stream_semaphore():
-                async for chunk in yield_bytes(stream_client, file_id, start, end):
+                async for chunk in yield_bytes_parallel(
+                    stream_client, file_id, start, end,
+                    parallel=config.STREAM_PARALLEL_CHUNKS,
+                ):
                     yield chunk
 
         return StreamingResponse(
@@ -193,10 +212,12 @@ async def media_endpoint(token: str, request: Request):
             media_type=mime_type,
         )
 
-    # No Range header — stream the whole file
     async def _stream_full():
         async with _get_stream_semaphore():
-            async for chunk in yield_bytes(stream_client, file_id, 0, file_size - 1):
+            async for chunk in yield_bytes_parallel(
+                stream_client, file_id, 0, file_size - 1,
+                parallel=config.STREAM_PARALLEL_CHUNKS,
+            ):
                 yield chunk
 
     return StreamingResponse(
@@ -232,7 +253,12 @@ async def download_endpoint(token: str, request: Request):
 
     async def _download():
         async with _get_download_semaphore():
-            async for chunk in yield_bytes(download_client, file_id, 0, file_size - 1):
+            # Use higher parallelism for downloads — browser isn't seeking,
+            # so we can saturate all available Telegram DC connections.
+            async for chunk in yield_bytes_parallel(
+                download_client, file_id, 0, file_size - 1,
+                parallel=config.DOWNLOAD_PARALLEL_CHUNKS,
+            ):
                 yield chunk
 
     return StreamingResponse(
