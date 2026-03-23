@@ -1,4 +1,4 @@
-from kurigram import Client
+from pyrogram import Client
 import config
 
 # ── Resource profile: 32 vCPU, 32 GB RAM ─────────────────────────────────────
