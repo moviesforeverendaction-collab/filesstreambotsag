@@ -115,9 +115,9 @@ async def stream_page(token: str, request: Request):
     # Guard: file_size must be a positive integer
     file_size = int(data.get("file_size") or 0)
     return templates.TemplateResponse(
+        request=request,
         name="stream.html",
         context={
-            "request":      request,
             "file_url":     f"{config.BASE_URL}/media/{token}",
             "dl_url":       f"{config.BASE_URL}/dl/{token}",
             "file_name":    data.get("file_name", "Unknown"),
@@ -146,9 +146,9 @@ async def download_page(token: str, request: Request):
         else ""
     )
     return templates.TemplateResponse(
+        request=request,
         name="dl.html",
         context={
-            "request":         request,
             "file_url":        f"{config.BASE_URL}/dl/{token}",
             "file_name":       data.get("file_name", "Unknown"),
             "file_size":       file_size,
